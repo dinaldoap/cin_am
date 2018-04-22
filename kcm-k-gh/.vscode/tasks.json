@@ -1,0 +1,21 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "kill-python",
+            "type": "shell",
+            "command": "taskkill /t /im python.exe /f /fi \"STATUS eq RUNNING\"",
+            //"command": "taskkill /t /im python.exe /f", 
+            "isBackground": false
+        },
+        {
+            "label": "run-doctests",
+            "type": "shell",
+            //"command": "python -m doctest -v \"${file}\"",
+            "command": "python -m doctest \"${file}\"", 
+            "isBackground": false
+        }
+    ]
+}

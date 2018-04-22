@@ -1,0 +1,6 @@
+E = { e1, ..., en }         Objects
+P                           Partitions
+c                           Number of Clusters Pi(1 <= i <= c)
+G = (g1, ..., gc)           Matrix of prototypes
+s = (s1^2, ..., sp^2)       Width hyper-parameters
+K(xl, xk) = FI(xl)^T FI(xk)  Mercer Kernel
