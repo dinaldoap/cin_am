@@ -69,6 +69,8 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+notebook.tex
+output_*_*.png
 
 # pyenv
 .python-version
