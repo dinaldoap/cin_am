@@ -40,8 +40,7 @@ class ParzenWindowB(ba.BaseEstimator, ba.ClassifierMixin):
 class WindowSizeOptimizer():
     def bw(self, X):
         n_samples, n_vars = X.shape
-        est = sm.nonparametric.KDEMultivariate(data=X, var_type='c'*n_vars, bw='normal_reference')        
-        sm. 
+        est = sm.nonparametric.KDEMultivariate(data=X, var_type='c'*n_vars, bw='normal_reference')
         return est.bw
 
         
