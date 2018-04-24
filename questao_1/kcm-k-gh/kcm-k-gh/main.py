@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 import numpy as np
 import util
-
+import csv
+from itertools import islice
 
 def kcm_k_gh(d, c, y, p):
     """
@@ -188,7 +189,8 @@ def __calc_s_j(j, clusters, g, s, y, p):
 
     part_1 = (y ** (1/p)) * (mult_h ** (1/p))
     part_2 = __calc_s_j_sum_param(clusters, g, s, j)
-    temp = 1 / (part_1 / part_2) # TODO: fazer tratamento de divisão por zero !!!
+    # TODO: fazer tratamento de divisão por zero !!!
+    temp = 1 / (part_1 / part_2)
     s_j = np.sqrt(temp)
     return s_j
 
@@ -365,24 +367,23 @@ def read_file_data(file_name, start_row=0, start_col=0, end_col=None):
     output = list()
 
     with open(file_name, "r") as f:
-        for i, line in enumerate(f):
-            if (i >= start_row):
-                _start_col = start_col
-                _end_col = end_col
+        reader = csv.reader(f)
+        
+        for row in islice(reader, start_row, None):
+            _start_col = start_col
+            _end_col = end_col
+            row_data = row
 
-                # Split data by comma (,) delimiter:
-                row_data = line.rstrip().split(",")
+            # Check if start and end cols are valid,
+            # and correct if needed:
+            if (_start_col == None):
+                _start_col = 0
+            if (_end_col == None):
+                _end_col = len(row_data) - 1
 
-                # Check if start and end cols are valid,
-                # and correct if needed:
-                if (_start_col == None):
-                    _start_col = 0
-                if (_end_col == None):
-                    _end_col = len(row_data) - 1
-
-                # Truncate row data and add to output:
-                row_data = row_data[_start_col:(_end_col+1)]
-                output.append(row_data)
+            # Truncate row data and add to output:
+            row_data = row_data[_start_col:(_end_col+1)]
+            output.append(row_data)
 
     return output
 
