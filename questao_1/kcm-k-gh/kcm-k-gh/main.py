@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 import numpy as np
 import util
-
+import csv
+from itertools import islice
 
 def kcm_k_gh(d, c, y, p):
     """
@@ -25,10 +26,10 @@ def kcm_k_gh(d, c, y, p):
     g = init_prototypes(d, c)
 
     # Initialize the width hyper-parameter vector ``s``:
-    s = init_s(y, p)
+    _1_s2 = init_1_s2(y, p)
 
     # Initialize clusters:
-    clusters = calc_clusters(d, g, s)
+    clusters = calc_clusters(d, g, _1_s2)
 
     # ITERATION:
     test = None
@@ -40,14 +41,14 @@ def kcm_k_gh(d, c, y, p):
         test = 0
 
         # Step 1: Representation
-        g = calc_prototypes(clusters, g, s)
+        g = calc_prototypes(clusters, g, _1_s2)
 
         # Step 2: Computation of the width hyper-parameters:
-        s = calc_s(clusters, g, s, y, p)
-        print(s)
+        _1_s2 = calc_1_s2(clusters, g, _1_s2, y, p)
+        print(_1_s2)
 
         # Step 3: Allocation:
-        new_clusters = calc_clusters(d, g, s)
+        new_clusters = calc_clusters(d, g, _1_s2)
 
         if (new_clusters != clusters):
             clusters = new_clusters
@@ -61,7 +62,7 @@ def kcm_k_gh(d, c, y, p):
     # TODO: Calcular numero de objetos no cluster e RAD:
     print("Cluster representatives `g`: %s" % g)
     print("Cluster objects number: %s" % '')
-    print("Global vector of hyper-parameters `s`: %s" % s)
+    print("Global vector of hyper-parameters `s`: %s" % _1_s2)
     print("Partitions `P`: %s" % clusters)
     print("Rand Adjusted Index (RAI): %s" % '')
 
@@ -78,7 +79,7 @@ def init_prototypes(d, c):
     return util.take_random_elems(d, c)
 
 
-def calc_prototypes(clusters, g, s):
+def calc_prototypes(clusters, g, _1_s2):
     """
     Compute the cluster representatives ``g1 ... gn``.
 
@@ -91,8 +92,8 @@ def calc_prototypes(clusters, g, s):
         s: The array of width hyper-parameters.
 
     Examples:
-        >>> calc_prototypes([[[1.0, 2.0], [0.5, 2.1]], [[11.0, 22.0]], [[3.0, 5.0]]], [[0.8, 2.1], [4.0, 6.5], [9.3, 4.6]], [1.5, 2.8])
-        [[0.7513091575342355, 2.0497381684931533], [11.0, 22.0], [3.0, 5.0]]
+        >>> calc_prototypes([[[1.0, 2.0], [0.5, 2.1]], [[11.0, 22.0]], [[3.0, 5.0]]], [[0.8, 2.1], [4.0, 6.5], [9.3, 4.6]], [0.044, 0.032])
+        [[0.7501174999913481, 2.0499765000017303], [11.0, 22.0], [3.0, 5.0]]
     """
     c = len(g)
     new_g = [[] for _ in range(c)]
@@ -100,12 +101,12 @@ def calc_prototypes(clusters, g, s):
     for i, g_i in enumerate(g):
         if g_i:
             e = clusters[i]
-            new_g[i] = __calc_prototype_g_i(e, g_i, s)
+            new_g[i] = __calc_prototype_g_i(e, g_i, _1_s2)
 
     return new_g
 
 
-def __calc_prototype_g_i(e, g_i, s):
+def __calc_prototype_g_i(e, g_i, _1_s2):
     result = []
 
     if e:
@@ -113,7 +114,7 @@ def __calc_prototype_g_i(e, g_i, s):
         sum_2 = 0
 
         for e_k in e:
-            ks_e_k = ks(e_k, g_i, s)
+            ks_e_k = ks(e_k, g_i, _1_s2)
             sum_1 += (ks_e_k * np.array(e_k))
             sum_2 += ks_e_k
 
@@ -123,13 +124,12 @@ def __calc_prototype_g_i(e, g_i, s):
     return result
 
 
-def init_s(y, p):
+def init_1_s2(y, p):
     """
     Initialize width hyper-parameter vector ``s``.
 
     Formula:
         Set ``(1/sj²) = (y)^(1/p)``, where (1 <= j <= p).
-        ::: ``sj = sqrt(1/(y^(1/p)))``
 
     Args:
         y: Parameter ``γ``.
@@ -139,19 +139,17 @@ def init_s(y, p):
         p-sized array containing ``s`` hyper-parameters for each variable.
 
     Examples:
-        >>> init_s(1.5, 3)
-        [0.9346552651840672, 0.9346552651840672, 0.9346552651840672]
+        >>> init_1_s2(1.5, 3)
+        [1.1447142425533319, 1.1447142425533319, 1.1447142425533319]
 
-        >>> init_s(0.83542, 5)
-        [1.018144719524774, 1.018144719524774, 1.018144719524774, 1.018144719524774, 1.018144719524774]
+        >>> init_1_s2(0.83542, 5)
+        [0.9646748886937874, 0.9646748886937874, 0.9646748886937874, 0.9646748886937874, 0.9646748886937874]
     """
-    temp = (y ** (1 / p))
-    temp = (1 / temp)
-    sj = np.sqrt(temp)
-    return [sj] * p
+    _1_s2_j = (y ** (1 / p))
+    return [_1_s2_j] * p
 
 
-def calc_s(clusters, g, s, y, p):
+def calc_1_s2(clusters, g, _1_s2, y, p):
     """
     Computes the global vector of width hyper-parameters ``s``.
 
@@ -167,33 +165,33 @@ def calc_s(clusters, g, s, y, p):
         y: The parameter ``γ``.
 
     Examples:
-        >>> calc_s([[[1.0, 2.0], [0.5, 2.1]], [[3.0, 5.0]], [[11.0, 22.0]]], [[0.8, 2.1], [4.0, 6.5], [9.3, 4,6]], [1.5, 2.8], 0.04081632653061224, 2)
-        [1.8920087087988386, 2.6161335544000908]
+        >>> calc_1_s2([[[1.0, 2.0], [0.5, 2.1]], [[3.0, 5.0]], [[11.0, 22.0]]], [[0.8, 2.1], [4.0, 6.5], [9.3, 4,6]], [0.044, 0.032], 0.04081632653061224, 2)
+        [0.3793162998795441, 0.10760498967108424]
     """
-    new_s = [[] for _ in s]
+    new_s = [[] for _ in _1_s2]
 
     for j in range(p):
-        new_s[j] = __calc_s_j(j, clusters, g, s, y, p)
+        new_s[j] = __calc_1_s2_j(j, clusters, g, _1_s2, y, p)
 
     return new_s
 
 
-def __calc_s_j(j, clusters, g, s, y, p):
+def __calc_1_s2_j(j, clusters, g, _1_s2, y, p):
     # Calculate the number of parameters in prototype (which dimension is equals to elements):
     mult_h = 1
 
     for h in range(p):
-        sum_h = __calc_s_j_sum_param(clusters, g, s, h)
+        sum_h = __calc_s_j_sum_param(clusters, g, _1_s2, h)
         mult_h *= sum_h
 
     part_1 = (y ** (1/p)) * (mult_h ** (1/p))
-    part_2 = __calc_s_j_sum_param(clusters, g, s, j)
-    temp = 1 / (part_1 / part_2) # TODO: fazer tratamento de divisão por zero !!!
-    s_j = np.sqrt(temp)
-    return s_j
+    part_2 = __calc_s_j_sum_param(clusters, g, _1_s2, j)
+    # TODO: fazer tratamento de divisão por zero !!!
+    _1_s2_j = (part_1 / part_2)
+    return _1_s2_j
 
 
-def __calc_s_j_sum_param(clusters, g, s, param):
+def __calc_s_j_sum_param(clusters, g, _1_s2, param):
     sum_i = 0
 
     for i, g_i in enumerate(g):
@@ -205,14 +203,14 @@ def __calc_s_j_sum_param(clusters, g, s, param):
             for e_k in e:
                 e_kh = e_k[param]
                 g_ih = g_i[param]
-                sum_k += (ks(e_k, g_i, s) * ((e_kh - g_ih) ** 2))
+                sum_k += (ks(e_k, g_i, _1_s2) * ((e_kh - g_ih) ** 2))
 
             sum_i += sum_k
 
     return sum_i
 
 
-def calc_clusters(e, g, s):
+def calc_clusters(e, g, _1_s2):
     """
     Calculate clusters by verifying similarity with prototypes ``g``.
 
@@ -221,7 +219,7 @@ def calc_clusters(e, g, s):
         g: The vector containig the prototypes for clusters
 
     Examples:
-        >>> calc_clusters([[1.0, 2.0], [3.0, 5.0], [11.0, 22.0], [0.5, 2.1]], [[0.8, 2.1], [4.0, 6.5], [9.3, 4.6]], [1.5, 2.8])
+        >>> calc_clusters([[1.0, 2.0], [3.0, 5.0], [11.0, 22.0], [0.5, 2.1]], [[0.8, 2.1], [4.0, 6.5], [9.3, 4.6]], [0.044, 0.032])
         [[[1.0, 2.0], [0.5, 2.1]], [[3.0, 5.0]], [[11.0, 22.0]]]
     """
     c = len(g)
@@ -230,18 +228,18 @@ def calc_clusters(e, g, s):
     for e_k in e:
         # Find new cluster based on minimization of
         # the objective function (JKCM-G-GH):
-        new_i = minimize_jkcm_g_gh(e_k, g, s)
+        new_i = minimize_jkcm_g_gh(e_k, g, _1_s2)
         new_clusters[new_i].append(e_k)
 
     return new_clusters
 
 
-def minimize_jkcm_g_gh(e_k, g, s):
+def minimize_jkcm_g_gh(e_k, g, _1_s2):
     """
     The objective function ``JKCM-K-GH`` to minimize.
 
     Examples:
-        >>> minimize_jkcm_g_gh([1.0, 2.0], [[0.8, 2.1], [4.0, 6.5], [9.3, 4,6]], [1.5, 2.8])
+        >>> minimize_jkcm_g_gh([1.0, 2.0], [[0.8, 2.1], [4.0, 6.5], [9.3, 4,6]], [0.044, 0.032])
         0
     """
     c = len(g)
@@ -250,7 +248,7 @@ def minimize_jkcm_g_gh(e_k, g, s):
     for i, g_i in enumerate(g):
         if g_i:
             # If `gi` is a valid prototype, calculate objective function:
-            jkcm_g_gh[i] = __minimize_jkcm_g_gh_ek(e_k, g_i, s)
+            jkcm_g_gh[i] = __minimize_jkcm_g_gh_ek(e_k, g_i, _1_s2)
         else:
             # Otherwise, considers kernel as an infinity valye, in
             # order to avoid being considered by argmin()
@@ -260,14 +258,14 @@ def minimize_jkcm_g_gh(e_k, g, s):
     return jkcm_g_gh.argmin()
 
 
-def __minimize_jkcm_g_gh_ek(e_k, g_i, s):
+def __minimize_jkcm_g_gh_ek(e_k, g_i, _1_s2):
     """
     The objective function ``JKCM-K-GH`` to minimize.
     """
-    return 2 * (1 - ks(e_k, g_i, s))
+    return 2 * (1 - ks(e_k, g_i, _1_s2))
 
 
-def ks(x_l, x_k, s):
+def ks(x_l, x_k, _1_s2):
     """
     Kernel function, based on a Gaussian kernel function with a
     global vector of width hyper-parameters `s`.
@@ -278,26 +276,25 @@ def ks(x_l, x_k, s):
     Args:
         x_l:
         x_k:
-        s: The global vector of width hyper-parameters.
+        _1_s2: The global vector of width hyper-parameters.
 
     Examples:
-        >>> ks([1.0, 2.0], [3.0, 4.0], [1.5, 2.8])
-        0.31854519015889254
+        >>> ks([1.0, 2.0], [3.0, 4.0], [0.044, 0.032])
+        0.8589882807411234
     """
     sum = 0
 
-    for j, s_j in enumerate(s):
+    for j, _1_s2_j in enumerate(_1_s2):
         x_lj = x_l[j]
         x_kj = x_k[j]
-        sum += __ks_sum(x_lj, x_kj, s_j)
+        sum += __ks_sum(x_lj, x_kj, _1_s2_j)
 
     result = (-1/2) * sum
     return np.exp(result)
 
 
-def __ks_sum(x_lj, x_kj, s_j):
-    s_j2 = (s_j ** 2)
-    return ((1 / s_j2) * ((x_lj - x_kj) ** 2))
+def __ks_sum(x_lj, x_kj, _1_s2_j):
+    return (_1_s2_j * ((x_lj - x_kj) ** 2))
 
 
 ############# CÁLCULO DE γ: #############
@@ -365,24 +362,23 @@ def read_file_data(file_name, start_row=0, start_col=0, end_col=None):
     output = list()
 
     with open(file_name, "r") as f:
-        for i, line in enumerate(f):
-            if (i >= start_row):
-                _start_col = start_col
-                _end_col = end_col
+        reader = csv.reader(f)
+        
+        for row in islice(reader, start_row, None):
+            _start_col = start_col
+            _end_col = end_col
+            row_data = row
 
-                # Split data by comma (,) delimiter:
-                row_data = line.rstrip().split(",")
+            # Check if start and end cols are valid,
+            # and correct if needed:
+            if (_start_col == None):
+                _start_col = 0
+            if (_end_col == None):
+                _end_col = len(row_data) - 1
 
-                # Check if start and end cols are valid,
-                # and correct if needed:
-                if (_start_col == None):
-                    _start_col = 0
-                if (_end_col == None):
-                    _end_col = len(row_data) - 1
-
-                # Truncate row data and add to output:
-                row_data = row_data[_start_col:(_end_col+1)]
-                output.append(row_data)
+            # Truncate row data and add to output:
+            row_data = row_data[_start_col:(_end_col+1)]
+            output.append(row_data)
 
     return output
 
@@ -400,7 +396,6 @@ def run():
 
     # Algoritmo principal:
     kcm_k_gh(d, c, y, p)
-
 
 run()
 
