@@ -8,7 +8,7 @@
             "program": "${file}",
             "console": "none",
             "postDebugTask": "kill-python",
-            "preLaunchTask": "run-doctests",
+            //"preLaunchTask": "run-doctests",
         }
     ]
 }
