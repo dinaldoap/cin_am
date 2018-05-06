@@ -1,14 +1,14 @@
-import copy
+import copy as cp
 import random
 import numpy as np
 from scipy.spatial.distance import euclidean
-
+import math
 
 def take_random_elems(list, n):
     """
     Takes ``n`` random elements from ``list``.
     """
-    shuffle_list = copy.copy(list)
+    shuffle_list = copy(list)
     random.shuffle(shuffle_list)
     return shuffle_list[:n]
 
@@ -38,7 +38,7 @@ def flatten_matrix(matrix):
     return np.array(matrix).flatten().tolist()
 
 
-def calculate_distance_matrix(list):
+def calculate_distance_matrix(list, attr):
     """
     Calculate the matrix of distances between all ``list`` elements.
 
@@ -58,8 +58,8 @@ def calculate_distance_matrix(list):
         range_j = range(i, size)
 
         for j in range_j:
-            u = list[i]
-            v = list[j]
+            u = getattr(list[i], attr)
+            v = getattr(list[j], attr)
             distances[i][j] = euclidean(u, v)
 
     return distances
@@ -86,6 +86,11 @@ def infinity():
     """
     return np.inf
 
+def isnan(number):
+    return math.isnan(number)
+
+def copy(list):
+    return cp.copy(list)
 
 if __name__ == '__main__':
     import doctest
