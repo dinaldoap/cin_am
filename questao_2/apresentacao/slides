@@ -1,0 +1,1 @@
+python -m nbconvert apresentacao2.ipynb --to slides
