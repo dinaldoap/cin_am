@@ -1,13 +1,68 @@
 #!/usr/bin/env python
 import numpy as np
-import util
+import util as u
 import csv
 from itertools import islice
 import model as m
 from sklearn.metrics.cluster import adjusted_rand_score
+from sys import float_info as finfo
+import output_writer as ow
+from datetime import datetime as dt
+
+data_cache = dict()
+y_cache = dict()
 
 
-def kcm_k_gh(d, c, y, p):
+def kcm_k_gh(data_file, view, partitions, normalize_data):
+    # Data set:
+    d = provide_data(data_file, view, normalize_data)
+
+    # Paramters:
+    print("Setting up...")
+    c = partitions       # Number of clusters
+    p = len(d[0].data)   # Number of parameters
+    y = provide_y(view, p, d)
+
+    # Algoritmo principal:
+    print("Running KCM-K-GH...")
+    result = __kcm_k_gh(d, c, y, p)
+
+    return result
+
+
+def normalize_data(d):
+    cols_totals = sum_cols(d)
+    samples = list()
+    sample = None
+
+    for _, e_k in enumerate(d):
+        sample = m.Sample(e_k.label, e_k.new_label, e_k.data)
+
+        for i, x_i in enumerate(e_k.data):
+            new_val = x_i / cols_totals[i]
+
+            # if (new_val == 0):
+            #     new_val = finfo.min
+
+            sample.data[i] = new_val
+
+        samples.append(sample)
+
+    return samples
+
+
+def sum_cols(d):
+    p = len(d[0].data)
+    totals = [0 for _ in range(p)]
+
+    for _, e_k in enumerate(d):
+        for i, x_i in enumerate(e_k.data):
+            totals[i] += x_i
+
+    return totals
+
+
+def __kcm_k_gh(d, c, y, p):
     """
     Implementation of the variant with global vector of width hyper-parameters
     of the algorithm 'Gaussian kernel c-means with kernelization of
@@ -54,30 +109,31 @@ def kcm_k_gh(d, c, y, p):
 
         iteration += 1
 
-        if (iteration == 2):
-            break
-
-    return (d, g, _1_s2)
+    return process_results(d, g, _1_s2, iteration)
 
 
-def print_output(d, g, _1_s2):
-    c = len(g)
-    clusters = create_clusters(d, c)
+def process_results(d, g, _1_s2, numIterations):
+    jkcm_k_gh = calc_jkcm_k_gh(d, g, _1_s2)
+    rai = calc_rai(d)
+    clusters = create_clusters(d, g)
+    return m.ExecutionResult(jkcm_k_gh, rai, clusters, g, _1_s2, numIterations)
 
+
+def print_output(result):
     # Cluster representatives:
-    print_cluster_representatives(g)
+    __print_simple_output("Cluster representatives (`g`)", result.g, 'data')
 
     # Cluster objects number:
-    print_clusters_objs_num(clusters)
+    print_clusters_objs_num(result.clusters)
 
     # Hyper parameters vector:
-    print_hyper_parameters(_1_s2)
+    print("Global vector of hyper-parameters (`1/s²`): \n%s\n" % result._1_s2)
 
     # Rand Adjusted Index (RAI):
-    print_rai(d)
+    print("Rand Adjusted Index (RAI): %s\n" % result.rai)
 
     # Partitions:
-    print_partitios(clusters)
+    print_partitios(result.clusters)
 
 
 def print_clusters_objs_num(clusters):
@@ -87,14 +143,6 @@ def print_clusters_objs_num(clusters):
         output = output + "  {} -> {} element(s)\n".format(i, cluster.size())
 
     print("Cluster objects number: \n%s" % output)
-
-
-def print_cluster_representatives(g):
-    __print_simple_output("Cluster representatives (`g`)", g, 'data')
-
-
-def print_hyper_parameters(_1_s2):
-    print("Global vector of hyper-parameters (`1/s²`): \n%s\n" % _1_s2)
 
 
 def print_partitios(clusters):
@@ -107,11 +155,6 @@ def print_partitios(clusters):
             output += "    {}\n".format(e_k.data)
 
     print("Partitios (`P`): \n%s" % output)
-
-
-def print_rai(d):
-    rai = calc_rai(d)
-    print("Rand Adjusted Index (RAI): %s\n" % rai)
 
 
 def __print_simple_output(msg, params, attr=None):
@@ -137,7 +180,7 @@ def init_prototypes(d, c):
         d: The dataset
         c: Number of elements to return
     """
-    samples = util.take_random_elems(d, c)
+    samples = u.take_random_elems(d, c)
     g = list()
 
     for i, sample in enumerate(samples):
@@ -268,26 +311,6 @@ def calc_1_s2(d, g, _1_s2, y, p):
     return new_s
 
 
-# def __calc_1_s2_j(j, d, g, _1_s2, y, p):
-#     # Calculate the number of parameters in prototype (which dimension is equals to elements):
-#     mult_h = 1
-
-#     for h in range(p):
-#         sum_h = __calc_s_j_sum_param(clusters, g, _1_s2, h)
-#         mult_h *= sum_h
-
-#     part_1 = (y ** (1/p)) * (mult_h ** (1/p))
-#     part_2 = __calc_s_j_sum_param(clusters, g, _1_s2, j)
-
-#     # TODO: fazer tratamento de divisão por zero !!!
-#     if (part_1 == 0 or part_2 == 0):
-#         _1_s2_j = 0
-#     else:
-#         _1_s2_j = (part_1 / part_2)
-
-#     return _1_s2_j
-
-
 def __calc_1_s2_j_part_1(d, g, _1_s2, y, p):
     c = len(g)
     acc_1 = [[0] * c for _ in range(p)]
@@ -337,25 +360,6 @@ def __calc_s_j_sum_param(e_k, g_i, _1_s2, param, acc):
     return new_acc
 
 
-# def __calc_s_j_sum_param(clusters, g, _1_s2, param):
-#     sum_i = 0
-
-#     for i, g_i in enumerate(g):
-#         sum_k = 0
-
-#         if g_i:
-#             e = clusters[i]
-
-#             for e_k in e:
-#                 e_kh = e_k[param]
-#                 g_ih = g_i[param]
-#                 sum_k += (ks(e_k, g_i, _1_s2) * ((e_kh - g_ih) ** 2))
-
-#             sum_i += sum_k
-
-#     return sum_i
-
-
 def calc_clusters(d, g, _1_s2):
     """
     Calculate clusters by verifying similarity with prototypes ``g``.
@@ -373,7 +377,7 @@ def calc_clusters(d, g, _1_s2):
     for e_k in d:
         # Find new cluster based on minimization of
         # the objective function (JKCM-G-GH):
-        new_i = minimize_jkcm_g_gh(e_k, g, _1_s2)
+        new_i = minimize_jkcm_k_gh_for_ek(e_k, g, _1_s2)
 
         if (new_i != e_k.new_label):
             e_k.new_label = new_i
@@ -382,31 +386,45 @@ def calc_clusters(d, g, _1_s2):
     return (d, has_changes)
 
 
-def minimize_jkcm_g_gh(e_k, g, _1_s2):
+def calc_jkcm_k_gh(d, g, _1_s2):
     """
-    The objective function ``JKCM-K-GH`` to minimize.
+    The objective function ``JKCM-K-GH``.
+    """
+    jkcm_k_gh_clusters = calc_jkcm_k_gh_for_clusters(d, g, _1_s2)
+    return jkcm_k_gh_clusters.sum()
 
-    Examples:
-        >>> minimize_jkcm_g_gh([1.0, 2.0], [[0.8, 2.1], [4.0, 6.5], [9.3, 4,6]], [0.044, 0.032])
-        0
+
+def calc_jkcm_k_gh_for_clusters(d, g, _1_s2):
+    """
+    The objective function ``JKCM-K-GH``.
     """
     c = len(g)
-    jkcm_g_gh = np.array([None] * c)
+    acc = np.array([0] * c, np.float)
+
+    for e_k in d:
+        i = e_k.new_label
+        g_i = g[i]
+        jkcm_k_gh = __calc_jkcm_k_gh_ek(e_k, g_i, _1_s2)
+        acc[i] += jkcm_k_gh
+
+    return acc
+
+
+def minimize_jkcm_k_gh_for_ek(e_k, g, _1_s2):
+    """
+    The objective function ``JKCM-K-GH`` calculated for all clusters.
+    """
+    c = len(g)
+    jkcm_k_gh_clusters = np.array([None] * c)
 
     for i, g_i in enumerate(g):
-        # if g_i:
-            # If `gi` is a valid prototype, calculate objective function:
-        jkcm_g_gh[i] = __minimize_jkcm_g_gh_ek(e_k, g_i, _1_s2)
-        # else:
-        #     # Otherwise, considers kernel as an infinity valye, in
-        #     # order to avoid being considered by argmin()
-        #     jkcm_g_gh[i] = util.infinity()
+        jkcm_k_gh_clusters[i] = __calc_jkcm_k_gh_ek(e_k, g_i, _1_s2)
 
-    # Gets the min value among calculated values
-    return jkcm_g_gh.argmin()
+    # Gets the min value among calculated values:
+    return jkcm_k_gh_clusters.argmin()
 
 
-def __minimize_jkcm_g_gh_ek(e_k, g_i, _1_s2):
+def __calc_jkcm_k_gh_ek(e_k, g_i, _1_s2):
     """
     The objective function ``JKCM-K-GH`` to minimize.
     """
@@ -447,7 +465,8 @@ def __ks_sum(x_lj, x_kj, _1_s2_j):
     return (_1_s2_j * ((x_lj - x_kj) ** 2))
 
 
-def create_clusters(d, c):
+def create_clusters(d, g):
+    c = len(g)
     clusters = [m.Cluster() for _ in range(c)]
 
     for e_k in d:
@@ -464,6 +483,14 @@ def calc_rai(d):
     return rai
 
 ############# CÁLCULO DE γ: #############
+
+
+def provide_y(view, p, d):
+    if (view.name not in y_cache):
+        print("Calculating `y`...")
+        y_cache[view.name] = calc_y(p, d)
+
+    return y_cache[view.name]
 
 
 def calc_y(p, d):
@@ -499,11 +526,11 @@ def calc_o2(d):
     # 1) Calcular distância Euclidiana de todos os pontos da amostra.
     #   Neste caso, será criada apenas a matriz da diagonal superior,
     #   uma vez que a diagonal inferior é espelhada da superior:
-    distances = util.calculate_distance_matrix(d, 'data')
+    distances_v = u.calculate_distance_matrix(d)
 
     # 2) Ordenar as distâncias encontradas
-    distances_v = util.flatten_matrix(distances)
-    distances_v = util.remove_none_and_zero_elems(distances_v)
+    #distances_v = u.flatten_matrix(distances)
+    distances_v = u.remove_none_and_zero_elems(distances_v)
 
     # 3) Calcular o 0,1 e 0,9 quantil
     distances_v.sort()
@@ -516,7 +543,23 @@ def calc_o2(d):
     return perc_avg
 
 
-def read_file_data(file_name, label_col=0, data_startrow=0, data_startcol=None, data_endcol=None):
+def provide_data(file_name, view, normalize):
+    if (view.name not in data_cache):
+        # Loading step:
+        print("Loading data for '%s'..." % view.name)
+        data = read_file_data(file_name, view)
+
+        # Normalization step:
+        if (normalize):
+            print("Normalizing data...")
+            data = normalize_data(data)
+
+        data_cache[view.name] = data
+
+    return data_cache[view.name]
+
+
+def read_file_data(file_name, view):
     """
     Read data from file.
 
@@ -529,26 +572,24 @@ def read_file_data(file_name, label_col=0, data_startrow=0, data_startcol=None, 
     """
     output = list()
     known_labels = dict()
-    _start_col = data_startcol
-    _end_col = data_endcol
+    remove_cols = None
 
     with open(file_name, "r") as f:
         reader = csv.reader(f)
 
-        for row in islice(reader, data_startrow, None):
+        for row in islice(reader, view.startRow, None):
             # Check if start and end cols are valid,
             # and correct if needed:
-            if (_start_col == None):
-                _start_col = 0
-            if (_end_col == None):
-                _end_col = len(row) - 1
+            if (remove_cols == None):
+                _all_cols = range(0, len(row))
+                remove_cols = [c for c in _all_cols if c not in view.cols()]
 
             # Truncate row data and add to output:
-            data = row[_start_col:(_end_col+1)]
-            data = util.parse_float(data)
+            data = u.remove_cols(row, remove_cols)
+            data = u.parse_float(data)
 
             # Get label from row:
-            label_name = row[label_col]
+            label_name = row[view.labelCol]
 
             # Transcript row to an index-based representation:
             label = transcript_label(known_labels, label_name)
@@ -570,28 +611,46 @@ def transcript_label(labels, label_name):
     return label
 
 
-def run():
-    # Data set:
-    print("Loading data...")
-    d = read_file_data("segmentation.data", 0, 6, 1)
-
-    # Paramters:
-    print("Setting up...")
-    c = 7           # Number of clusters
-    p = len(d[0].data)   # Number of parameters
-    y = calc_y(p, d)
-
-    # Algoritmo principal:
-    print("Running KCM-K-GH...")
-    (d, g, _1_s2) = kcm_k_gh(d, c, y, p)
-
-    # Print output:
-    print("Processing output...")
-    print_output(d, g, _1_s2)
+def print_step(view, step):
+    print("")
+    print("------------------------------------------------")
+    print(" %s - Iteration %s:" % (view.name, step))
+    print("------------------------------------------------")
 
 
-run()
+def run(data_file, nIterations, nPartitions, normalize_data):
+    completeView = m.View(
+        "Complete View", u.range_list(1, 21), 0, 5, [3, 4, 5])
+    shapeView = m.View("Shape View", u.range_list(1, 10), 0, 5, [3, 4, 5])
+    rgbView = m.View("RGB View", u.range_list(11, 21), 0, 5)
+    views = [completeView, shapeView, rgbView]
 
-# if __name__ == '__main__':
-#import doctest
-# doctest.testmod()
+    print("Starting processing...")
+
+    with ow.OutputWriter(normalize_data) as writer:
+        for view in views:
+            for i in range(nIterations):
+                success = False
+                iteration = i + 1
+
+                print_step(view, iteration)
+
+                while not success:
+                    try:
+                        start_time = dt.now()
+                        result = kcm_k_gh(
+                            data_file, view, nPartitions, normalize_data)
+                        finish_time = dt.now()
+                        success = True
+                    except Exception as e:
+                        print("Erro: %s" % (e))
+
+                # Write output to file:
+                writer.write_output(view, result, iteration,
+                                    start_time, finish_time)
+
+    print("\nProcessing completed.")
+
+
+#run(100, 7)
+run('data\\segmentation.data', 15, 7, True)
