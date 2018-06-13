@@ -4,10 +4,11 @@ import util as u
 import csv
 from itertools import islice
 import model as m
-from sklearn.metrics.cluster import adjusted_rand_score
+from sklearn.metrics import cluster as cluster
 from sys import float_info as finfo
 import output_writer as ow
 from datetime import datetime as dt
+import argparse
 
 data_cache = dict()
 y_cache = dict()
@@ -19,9 +20,9 @@ def kcm_k_gh(data_file, view, partitions, normalize_data):
 
     # Paramters:
     print("Setting up...")
-    c = partitions       # Number of clusters
-    p = len(d[0].data)   # Number of parameters
-    y = provide_y(view, p, d)
+    c = partitions              # Number of clusters
+    p = len(d[0].data)          # Number of parameters
+    y = provide_y(view, p, d)   # Parameter 'y'
 
     # Algoritmo principal:
     print("Running KCM-K-GH...")
@@ -80,14 +81,7 @@ def __kcm_k_gh(d, c, y, p):
         Number of variables.
     """
     # INTIALIZATION:
-    # Randomly select ``c`` distinct prototypes ``gi`` which belongs to D(1 <= i <= c):
-    g = init_prototypes(d, c)
-
-    # Initialize the width hyper-parameter vector ``s``:
-    _1_s2 = init_1_s2(y, p)
-
-    # Initialize clusters:
-    (d, _) = calc_clusters(d, g, _1_s2)
+    (g, _1_s2, d) = init_kcm_k_gh(d, c, y, p)
 
     # ITERATION:
     iteration = 1
@@ -98,7 +92,6 @@ def __kcm_k_gh(d, c, y, p):
         test = 0
 
         # Step 1: Representation
-        # CORRIGIR:
         g = calc_prototypes(d, g, _1_s2)
 
         # Step 2: Computation of width hyper-parameters:
@@ -110,6 +103,34 @@ def __kcm_k_gh(d, c, y, p):
         iteration += 1
 
     return process_results(d, g, _1_s2, iteration)
+
+
+def init_kcm_k_gh(d, c, y, p):
+    """
+    Process initialization for KCM-K-GH algorithm.
+
+    Parameters
+    ----------
+    d : array_like
+        The data set ``{ x1, ... xn }``.
+    c :
+        The number of clusters.
+    y :
+        A suitable parmeter ``γ``.
+    p :
+        Number of variables.
+    """
+    # Randomly select ``c`` distinct prototypes ``gi`` 
+    # which belongs to D(1 <= i <= c):
+    g = init_prototypes(d, c)
+
+    # Initialize the width hyper-parameter vector ``s``:
+    _1_s2 = init_1_s2(y, p)
+
+    # Initialize clusters:
+    (d, _) = calc_clusters(d, g, _1_s2)
+
+    return (g, _1_s2, d)
 
 
 def process_results(d, g, _1_s2, numIterations):
@@ -479,7 +500,7 @@ def create_clusters(d, g):
 def calc_rai(d):
     labels_true = [e_k.label for e_k in d]
     labels_pred = [e_k.new_label for e_k in d]
-    rai = adjusted_rand_score(labels_true, labels_pred)
+    rai = cluster.adjusted_rand_score(labels_true, labels_pred)
     return rai
 
 ############# CÁLCULO DE γ: #############
@@ -518,26 +539,20 @@ def calc_o2(d):
 
     Args:
         d (array_like): The data set.
-
-    Examples:
-        >>> calc_o2([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]])
-        4.949747468305833
     """
-    # 1) Calcular distância Euclidiana de todos os pontos da amostra.
-    #   Neste caso, será criada apenas a matriz da diagonal superior,
-    #   uma vez que a diagonal inferior é espelhada da superior:
+    # 1) Calcular distância Euclidiana entre todos os pontos da
+    # amostra, dois a dois:
     distances_v = u.calculate_distance_matrix(d)
+    #distances_v = u.remove_none_and_zero_elems(distances_v)
 
-    # 2) Ordenar as distâncias encontradas
-    #distances_v = u.flatten_matrix(distances)
-    distances_v = u.remove_none_and_zero_elems(distances_v)
-
-    # 3) Calcular o 0,1 e 0,9 quantil
+    # 2) Ordenar as distâncias encontradas:
     distances_v.sort()
+
+    # 3) Calcular o 0,1 e 0,9 quantil:
     perc_10 = np.percentile(distances_v, 10)
     perc_90 = np.percentile(distances_v, 90)
 
-    # 4) Obter a média entre os quantis acima
+    # 4) Obter a média entre os quantis acima:
     perc_avg = (perc_10 + perc_90) / 2
 
     return perc_avg
@@ -618,16 +633,15 @@ def print_step(view, step):
     print("------------------------------------------------")
 
 
-def run(data_file, nIterations, nPartitions, normalize_data):
-    completeView = m.View(
-        "Complete View", u.range_list(1, 21), 0, 5, [3, 4, 5])
+def run(data_file, output_folder, nIterations, nPartitions, normalize_data):
+    completeView = m.View("Complete View", u.range_list(1, 21), 0, 5, [3, 4, 5])
     shapeView = m.View("Shape View", u.range_list(1, 10), 0, 5, [3, 4, 5])
     rgbView = m.View("RGB View", u.range_list(11, 21), 0, 5)
     views = [completeView, shapeView, rgbView]
 
     print("Starting processing...")
 
-    with ow.OutputWriter(normalize_data) as writer:
+    with ow.OutputWriter(output_folder, normalize_data) as writer:
         for view in views:
             for i in range(nIterations):
                 success = False
@@ -642,7 +656,7 @@ def run(data_file, nIterations, nPartitions, normalize_data):
                             data_file, view, nPartitions, normalize_data)
                         finish_time = dt.now()
                         success = True
-                    except Exception as e:
+                    except ZeroDivisionError as e:
                         print("Erro: %s" % (e))
 
                 # Write output to file:
@@ -652,5 +666,25 @@ def run(data_file, nIterations, nPartitions, normalize_data):
     print("\nProcessing completed.")
 
 
-#run(100, 7)
-run('data\\segmentation.data', 15, 7, True)
+def watch_args():
+    parser = argparse.ArgumentParser(
+        description='Executes KCM-K-GH algorithm.')
+    parser.add_argument('data_file', metavar='-d', type=str,
+                        help='Path to the data to be processed.')
+    parser.add_argument('output_folder', metavar='-o', type=str,
+                        help='Path to the folder were results must be written.')
+    parser.add_argument('nIterations', metavar='-i', type=int,
+                        help='Number of iterations to process.')
+    parser.add_argument('nPartitions', metavar='-c', type=int,
+                        help='Number of clusters to create.')
+    parser.add_argument('normalize', metavar='-n', type=str, default='n', choices=['s', 'n'],
+                        help='Normalize data (s/n).')
+
+    args = parser.parse_args()
+
+    run(args.data_file, args.output_folder, args.nIterations,
+        args.nPartitions, (args.normalize == 's'))
+
+
+watch_args()
+#run('data\\segmentation.test', 15, 7, True)
