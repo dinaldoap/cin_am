@@ -9,6 +9,7 @@ setup(name='KCM-K-GH',
       author_email='amorim.cleison@gmail.com',
       install_requires=[
             'numpy >= 1.14.2', 
-            'scipy >= 1.0.1'
+            'scipy >= 1.0.1',
+            'sklearn >= 0.19.1'
             ]
      )
